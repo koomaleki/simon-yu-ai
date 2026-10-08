@@ -118,7 +118,7 @@ Do not invent information that is not supported by these sources.
 
         // Cloudflare Workers AI
         const result = await env.AI.run(
-          "@cf/meta/llama-3.1-8b-instruct",
+          "@cf/meta/llama-3.1-8b-instruct-fp8",
           {
             messages: [
               {
