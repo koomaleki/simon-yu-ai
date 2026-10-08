@@ -6,19 +6,25 @@ export default {
     if (url.pathname === "/api/ask" && request.method === "POST") {
       try {
         const body = await request.json();
+
         const question = String(body.question || "").trim();
         const language = String(body.language || "auto");
 
         if (!question) {
           return new Response(
-            JSON.stringify({ error: "Question required" }),
+            JSON.stringify({
+              error: "Question required"
+            }),
             {
               status: 400,
-              headers: { "content-type": "application/json" }
+              headers: {
+                "content-type": "application/json"
+              }
             }
           );
         }
 
+        // Approved/public sources
         const sources = [
           {
             title: "Simon Yu for Mayor — Official Campaign Site",
@@ -50,97 +56,85 @@ export default {
           }
         ];
 
-        const key = env.AI_API_KEY;
-
-        if (!key) {
-          return new Response(
-            JSON.stringify({
-              answer:
-                "The website is deployed, but its AI service has not been connected yet. An administrator must add the AI API key before live Q&A is enabled.",
-              sources
-            }),
-            {
-              headers: { "content-type": "application/json" }
-            }
-          );
-        }
-
-        const base =
-          env.AI_BASE_URL || "https://api.openai.com/v1";
-
-        const model =
-          env.AI_MODEL || "gpt-4o-mini";
-
         const system = `
-You are the Ask Simon Yu public-information assistant.
+You are the "Ask Simon Yu" public-information assistant.
 
-Answer only from the supplied published sources.
+Your job is to answer questions about Simon Yu, his campaign,
+his published platform, and relevant public information about
+the City of Prince George.
 
-Never invent quotations, positions, promises, dates, achievements,
-endorsements, or policy details.
+IMPORTANT RULES:
 
-Clearly distinguish:
-1. Simon Yu campaign proposals
-2. Official City of Prince George information
-3. Third-party reporting
-4. Historical information
+1. Never invent facts, quotations, promises, positions,
+   endorsements, dates, achievements, or policy details.
 
-If the supplied sources do not answer the question, say:
+2. Clearly distinguish between:
+   - Simon Yu campaign proposals
+   - Official City of Prince George information
+   - Third-party reporting
+   - Historical information
 
-"I couldn't find a published answer from Simon Yu on this specific question."
+3. Do not present a campaign proposal as an existing City policy.
 
-Answer in the requested language.
-If the requested language is "auto", answer in the same language as the question.
+4. Do not present third-party reporting as a direct statement
+   from Simon Yu.
 
-Be concise, factual, neutral, and transparent.
+5. If the available information does not establish an answer,
+   say exactly:
+
+   "I couldn't find a published answer from Simon Yu on this specific question."
+
+6. Answer in the requested language.
+
+7. If language is "auto", answer in the same language
+   as the user's question.
+
+8. Be concise, factual, neutral and transparent.
+
+9. Never claim that Simon Yu said something unless it is
+   supported by the published information provided to you.
+
+The user may ask questions in English, French, Chinese, Persian,
+Punjabi, Hindi, Spanish, German, Arabic, or another language.
 `;
 
         const userMessage = `
-Question:
+User question:
 ${question}
 
 Requested language:
 ${language}
 
-Published sources:
+Approved public sources:
+
 ${sources
-  .map((s) => `${s.title} — ${s.url}`)
-  .join("\n")}
+  .map((source) => `${source.title}\n${source.url}`)
+  .join("\n\n")}
+
+Important:
+The source list identifies approved public sources.
+Do not invent information that is not supported by these sources.
 `;
 
-        const response = await fetch(
-          `${base}/chat/completions`,
+        // Cloudflare Workers AI
+        const result = await env.AI.run(
+          "@cf/meta/llama-3.1-8b-instruct",
           {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${key}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              model,
-              messages: [
-                {
-                  role: "system",
-                  content: system
-                },
-                {
-                  role: "user",
-                  content: userMessage
-                }
-              ],
-              temperature: 0.1
-            })
+            messages: [
+              {
+                role: "system",
+                content: system
+              },
+              {
+                role: "user",
+                content: userMessage
+              }
+            ]
           }
         );
 
-        if (!response.ok) {
-          throw new Error("AI request failed");
-        }
-
-        const result = await response.json();
-
         const answer =
-          result.choices?.[0]?.message?.content ||
+          result?.response ||
           "I couldn't find a published answer from Simon Yu on this specific question.";
 
         return new Response(
@@ -154,10 +148,12 @@ ${sources
             }
           }
         );
+
       } catch (error) {
         return new Response(
           JSON.stringify({
-            error: "Unable to process request"
+            error: "Unable to process request",
+            message: error?.message || "Unknown error"
           }),
           {
             status: 500,
